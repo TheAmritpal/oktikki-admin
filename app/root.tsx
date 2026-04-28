@@ -5,7 +5,10 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useNavigation,
 } from "react-router";
+import { Toaster } from "sonner";
+import { ThemeProvider } from "~/components/theme-provider";
 
 import type { Route } from "./+types/root";
 import "./app.css";
@@ -25,7 +28,7 @@ export const links: Route.LinksFunction = () => [
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -34,6 +37,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         {children}
+        <Toaster position="top-right" richColors />
         <ScrollRestoration />
         <Scripts />
       </body>
@@ -42,7 +46,27 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  return <Outlet />;
+  return (
+    <ThemeProvider>
+      <NavigationProgress />
+      <Outlet />
+    </ThemeProvider>
+  );
+}
+
+function NavigationProgress() {
+  const navigation = useNavigation();
+  const isLoading = navigation.state === "loading";
+
+  return (
+    <div
+      className={`fixed top-0 left-0 right-0 z-50 h-0.5 transition-opacity duration-300 ${
+        isLoading ? "opacity-100" : "opacity-0"
+      }`}
+    >
+      <div className="h-full bg-primary animate-pulse" />
+    </div>
+  );
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
@@ -55,6 +79,8 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
     details =
       error.status === 404
         ? "The requested page could not be found."
+        : error.status === 403
+        ? "You do not have permission to access this page."
         : error.statusText || details;
   } else if (import.meta.env.DEV && error && error instanceof Error) {
     details = error.message;
