@@ -18,8 +18,8 @@ export async function logAudit(params: {
     action: params.action,
     entityType: params.entityType,
     entityId: params.entityId,
-    oldValues: params.oldValues ? params.oldValues : undefined,
-    newValues: params.newValues ? params.newValues : undefined,
+    oldValues: params.oldValues ? JSON.stringify(params.oldValues) : null,
+    newValues: params.newValues ? JSON.stringify(params.newValues) : null,
     ipAddress: ip,
     userAgent,
   });

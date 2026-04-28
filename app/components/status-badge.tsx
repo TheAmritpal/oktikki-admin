@@ -62,6 +62,13 @@ const statusVariants: Record<
   unverified: {
     className: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
   },
+  inactive: {
+    className: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
+  },
+  all: {
+    className: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
+    label: "All Users",
+  },
 };
 
 interface StatusBadgeProps {
