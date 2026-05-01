@@ -5,3 +5,11 @@
 # React Router
 /.react-router/
 /build/
+
+# Graphify
+graphify-out/cache/
+graphify-out/manifest.json
+graphify-out/cost.json
+.graphify_chunk_*.txt
+.graphify_python
+,graphifyignore

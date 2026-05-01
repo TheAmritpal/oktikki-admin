@@ -4,7 +4,16 @@
       "Bash(npm install *)",
       "Bash(npx shadcn@latest add alert-dialog -y -o)",
       "Bash(npx tsc *)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(npx react-router *)",
+      "Bash(curl -s http://localhost:5173/admin/users/1)",
+      "Bash(kill %1)",
+      "Bash(python -c \"import graphify; print\\('graphify version:', graphify.__version__\\)\")",
+      "Bash(python -c \"import graphify; print\\('graphify imported successfully'\\)\")",
+      "Bash(python *)",
+      "Bash(cp .graphify_detect.json graphify-out/.graphify_detect.json)",
+      "Bash(mkdir -p graphify-out)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }
