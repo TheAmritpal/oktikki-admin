@@ -3,16 +3,17 @@ import { useLoaderData, useSearchParams, useFetcher } from "react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import { db } from "~/db/index.server";
 import { hashtag, hashtagVideo } from "~/db/schema";
-import { count, eq, like, or, and, desc, asc, sql } from "drizzle-orm";
+import { count, eq, like, or, and, desc, asc } from "drizzle-orm";
 import { requireAuth } from "~/lib/auth.server";
 import { logAudit } from "~/lib/audit.server";
 import { parsePagination, getOffset, getTotalPages } from "~/lib/pagination";
 import { DataTable } from "~/components/data-table";
 import { SearchFilterBar } from "~/components/search-filter-bar";
-import { ConfirmDialog } from "~/components/confirm-dialog";
 import { Button } from "~/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "~/components/ui/dropdown-menu";
-import { MoreHorizontal, Trash2 } from "lucide-react";
+import { Input } from "~/components/ui/input";
+import { Label } from "~/components/ui/label";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "~/components/ui/dialog";
+import { Pencil, Plus } from "lucide-react";
 
 export async function loader({ request }: { request: Request }) {
   const session = await requireAuth(request);
@@ -32,10 +33,12 @@ export async function loader({ request }: { request: Request }) {
     db.select({
       id: hashtag.id,
       name: hashtag.name,
-      videosCount: sql<number>`(SELECT COUNT(*) FROM ${hashtagVideo} WHERE ${hashtagVideo.hashtagId} = ${hashtag.id})`,
+      videosCount: count(hashtagVideo.id),
     })
       .from(hashtag)
+      .leftJoin(hashtagVideo, eq(hashtagVideo.hashtagId, hashtag.id))
       .where(whereClause)
+      .groupBy(hashtag.id, hashtag.name)
       .orderBy(orderBy)
       .limit(pagination.limit)
       .offset(getOffset(pagination.page, pagination.limit)),
@@ -56,17 +59,36 @@ export async function action({ request }: { request: Request }) {
   const formData = await request.formData();
   const intent = String(formData.get("intent"));
 
-  if (intent === "delete") {
-    const hashtagId = Number(formData.get("hashtagId"));
-    await db.delete(hashtag).where(eq(hashtag.id, hashtagId));
+  if (intent === "create") {
+    const name = String(formData.get("name"));
+    if (!name.trim()) return { errors: { name: ["Hashtag name is required"] } };
+
+    await db.insert(hashtag).values({ name: name.trim() });
     await logAudit({
       adminId: session.adminId,
-      action: "delete_hashtag",
+      action: "create_hashtag",
       entityType: "hashtag",
-      entityId: hashtagId,
+      newValues: { name: name.trim() },
       request,
     });
-    return { success: true, intent: "delete" };
+    return { success: true, intent: "create" };
+  }
+
+  if (intent === "update") {
+    const hashtagId = Number(formData.get("hashtagId"));
+    const name = String(formData.get("name"));
+    if (!name.trim()) return { errors: { name: ["Hashtag name is required"] } };
+
+    await db.update(hashtag).set({ name: name.trim() }).where(eq(hashtag.id, hashtagId));
+    await logAudit({
+      adminId: session.adminId,
+      action: "update_hashtag",
+      entityType: "hashtag",
+      entityId: hashtagId,
+      newValues: { name: name.trim() },
+      request,
+    });
+    return { success: true, intent: "update" };
   }
 
   return { errors: { general: ["Unknown action"] } };
@@ -82,13 +104,35 @@ export default function HashtagsListPage() {
   const { hashtags, pagination } = useLoaderData<typeof loader>();
   const [searchParams, setSearchParams] = useSearchParams();
   const fetcher = useFetcher();
-  const [confirmDialog, setConfirmDialog] = useState<{
-    open: boolean;
-    title: string;
-    description: string;
-    intent: string;
-    hashtagId: number;
-  }>({ open: false, title: "", description: "", intent: "", hashtagId: 0 });
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogMode, setDialogMode] = useState<"create" | "edit">("create");
+  const [dialogHashtagId, setDialogHashtagId] = useState<number>(0);
+  const [dialogName, setDialogName] = useState("");
+
+  const openCreateDialog = () => {
+    setDialogMode("create");
+    setDialogHashtagId(0);
+    setDialogName("");
+    setDialogOpen(true);
+  };
+
+  const openEditDialog = (id: number, name: string) => {
+    setDialogMode("edit");
+    setDialogHashtagId(id);
+    setDialogName(name);
+    setDialogOpen(true);
+  };
+
+  const handleDialogSubmit = () => {
+    if (!dialogName.trim()) return;
+    if (dialogMode === "create") {
+      fetcher.submit({ intent: "create", name: dialogName.trim() }, { method: "post" });
+    } else {
+      fetcher.submit({ intent: "update", hashtagId: String(dialogHashtagId), name: dialogName.trim() }, { method: "post" });
+    }
+    setDialogOpen(false);
+    setDialogName("");
+  };
 
   const handleSearch = (value: string) => {
     setSearchParams((prev) => {
@@ -114,14 +158,6 @@ export default function HashtagsListPage() {
     });
   };
 
-  const handleConfirm = () => {
-    const { intent, hashtagId } = confirmDialog;
-    if (intent === "delete") {
-      fetcher.submit({ intent: "delete", hashtagId: String(hashtagId) }, { method: "post" });
-    }
-    setConfirmDialog((prev) => ({ ...prev, open: false }));
-  };
-
   const columns: ColumnDef<HashtagRow>[] = [
     {
       accessorKey: "name",
@@ -141,38 +177,25 @@ export default function HashtagsListPage() {
       id: "actions",
       header: "",
       cell: ({ row }) => (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8">
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              className="text-destructive focus:text-destructive"
-              onClick={() => setConfirmDialog({
-                open: true,
-                title: "Delete Hashtag",
-                description: `Are you sure you want to permanently delete the hashtag "#${row.original.name}"? This action cannot be undone.`,
-                intent: "delete",
-                hashtagId: row.original.id,
-              })}
-            >
-              <Trash2 className="mr-2 h-4 w-4" /> Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditDialog(row.original.id, row.original.name)}>
+          <Pencil className="h-4 w-4" />
+        </Button>
       ),
     },
   ];
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">Hashtags</h2>
-        <p className="text-muted-foreground">
-          Manage platform hashtags. {pagination.total.toLocaleString()} total records.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Hashtags</h2>
+          <p className="text-muted-foreground">
+            Manage platform hashtags. {pagination.total.toLocaleString()} total records.
+          </p>
+        </div>
+        <Button size="sm" onClick={openCreateDialog}>
+          <Plus className="mr-1 h-4 w-4" /> Add Hashtag
+        </Button>
       </div>
 
       <SearchFilterBar
@@ -194,14 +217,33 @@ export default function HashtagsListPage() {
         emptyMessage="No hashtags found."
       />
 
-      <ConfirmDialog
-        open={confirmDialog.open}
-        onOpenChange={(open) => setConfirmDialog((prev) => ({ ...prev, open }))}
-        title={confirmDialog.title}
-        description={confirmDialog.description}
-        onConfirm={handleConfirm}
-        variant="danger"
-      />
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{dialogMode === "create" ? "Add Hashtag" : "Edit Hashtag"}</DialogTitle>
+            <DialogDescription>
+              {dialogMode === "create" ? "Create a new hashtag for the platform." : "Update the hashtag name."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="hashtag-name">Name</Label>
+              <Input
+                id="hashtag-name"
+                placeholder="Enter hashtag name"
+                value={dialogName}
+                onChange={(e) => setDialogName(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleDialogSubmit} disabled={!dialogName.trim()}>
+              {dialogMode === "create" ? "Create" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
