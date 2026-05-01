@@ -178,11 +178,14 @@ export default function CategoriesListPage() {
     {
       accessorKey: "created",
       header: "Created",
-      cell: ({ row }) => (
-        <span className="text-sm text-muted-foreground">
-          {new Date(row.original.created).toLocaleDateString()}
-        </span>
-      ),
+      cell: ({ row }) => {
+        const d = new Date(row.original.created);
+        return (
+          <span className="text-sm text-muted-foreground">
+            {isNaN(d.getTime()) ? "—" : d.toLocaleDateString()}
+          </span>
+        );
+      },
     },
     {
       id: "actions",
