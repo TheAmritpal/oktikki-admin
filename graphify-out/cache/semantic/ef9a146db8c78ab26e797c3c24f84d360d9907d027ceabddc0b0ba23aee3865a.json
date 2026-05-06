@@ -1,1 +1,0 @@
-{"nodes": [{"id": "admin.permissions_loader", "label": "Permissions loader", "file_type": "code", "source_file": "app/routes/admin.permissions.tsx", "source_location": null, "source_url": null, "captured_at": null, "author": null, "contributor": null}], "edges": [], "hyperedges": []}
