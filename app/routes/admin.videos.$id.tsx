@@ -57,6 +57,7 @@ import {
   Flame,
   History,
   Camera,
+  ArrowRightLeft,
 } from "lucide-react";
 
 // ── Loader ───────────────────────────────────────────────────
@@ -607,6 +608,15 @@ export default function VideoDetailPage() {
             }
           >
             <Trash2 className="mr-1 h-4 w-4" /> Delete
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              navigate(`/admin/video-reassignment?videoId=${v.id}`)
+            }
+          >
+            <ArrowRightLeft className="mr-1 h-4 w-4" /> Reassign
           </Button>
         </div>
       </div>

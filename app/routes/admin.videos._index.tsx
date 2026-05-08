@@ -35,6 +35,7 @@ import {
   Heart,
   MessageCircle,
   Clock,
+  ArrowRightLeft,
 } from "lucide-react";
 
 // ── Types ────────────────────────────────────────────────────
@@ -521,6 +522,13 @@ export default function VideosListPage() {
               }
             >
               <Trash2 className="mr-2 h-4 w-4" /> Delete
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() =>
+                navigate(`/admin/video-reassignment?videoId=${row.original.id}`)
+              }
+            >
+              <ArrowRightLeft className="mr-2 h-4 w-4" /> Reassign
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
