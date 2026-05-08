@@ -5,9 +5,9 @@ import { redirect } from "react-router";
 import { db } from "~/db/index.server";
 import { user, video, follower, order, transaction, liveStreaming } from "~/db/schema";
 import { eq, count, desc, and, sql } from "drizzle-orm";
-import { requireAuth } from "~/lib/auth.server";
+import { requireAuth, hashPassword } from "~/lib/auth.server";
 import { logAudit } from "~/lib/audit.server";
-import { blockUserSchema, rechargeWalletSchema } from "~/lib/validation";
+import { blockUserSchema, rechargeWalletSchema, updateUserSchema } from "~/lib/validation";
 import { DataTable } from "~/components/data-table";
 import { StatCard } from "~/components/stat-card";
 import { ConfirmDialog } from "~/components/confirm-dialog";
@@ -19,7 +19,8 @@ import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "~/components/ui/dialog";
-import { ArrowLeft, ShieldOff, ShieldCheck, Trash2, Wallet, CheckCircle2, XCircle } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
+import { ArrowLeft, ShieldOff, ShieldCheck, Trash2, Wallet, CheckCircle2, XCircle, Pencil } from "lucide-react";
 
 export async function loader({ request, params }: { request: Request; params: { id: string } }) {
   const session = await requireAuth(request);
@@ -195,6 +196,77 @@ export async function action({ request, params }: { request: Request; params: { 
     return { success: true, intent: "recharge", newWallet };
   }
 
+  if (intent === "edit") {
+    const data = {
+      userId,
+      firstName: String(formData.get("firstName") || ""),
+      lastName: String(formData.get("lastName") || ""),
+      username: String(formData.get("username") || ""),
+      email: String(formData.get("email") || ""),
+      phone: String(formData.get("phone") || ""),
+      password: String(formData.get("password") || ""),
+      gender: String(formData.get("gender") || ""),
+      role: String(formData.get("role") || "user"),
+      verified: Number(formData.get("verified")),
+      active: Number(formData.get("active")),
+      dob: String(formData.get("dob") || ""),
+      bio: String(formData.get("bio") || ""),
+      website: String(formData.get("website") || ""),
+      country: String(formData.get("country") || ""),
+      wallet: Number(formData.get("wallet")),
+    };
+    const result = updateUserSchema.safeParse(data);
+    if (!result.success) return { errors: result.error.flatten().fieldErrors };
+
+    const [oldUser] = await db.select().from(user).where(eq(user.id, userId)).limit(1);
+
+    const updateData: Record<string, unknown> = {
+      firstName: result.data.firstName,
+      lastName: result.data.lastName,
+      username: result.data.username || null,
+      email: result.data.email || null,
+      phone: result.data.phone || null,
+      gender: result.data.gender,
+      role: result.data.role,
+      verified: result.data.verified,
+      active: result.data.active,
+      wallet: result.data.wallet,
+      dob: result.data.dob || null,
+      bio: result.data.bio ?? "",
+      website: result.data.website ?? "",
+      country: result.data.country ?? "",
+    };
+
+    if (result.data.password) {
+      updateData.password = await hashPassword(result.data.password);
+    }
+
+    await db.update(user).set(updateData).where(eq(user.id, userId));
+
+    await logAudit({
+      adminId: session.adminId,
+      action: "edit_user",
+      entityType: "user",
+      entityId: userId,
+      oldValues: oldUser
+        ? {
+            firstName: oldUser.firstName,
+            lastName: oldUser.lastName,
+            email: oldUser.email,
+            role: oldUser.role,
+          }
+        : undefined,
+      newValues: {
+        firstName: result.data.firstName,
+        lastName: result.data.lastName,
+        email: result.data.email,
+        role: result.data.role,
+      },
+      request,
+    });
+    return { success: true, intent: "edit" };
+  }
+
   return { errors: { general: ["Unknown action"] } };
 }
 
@@ -233,6 +305,45 @@ export default function UserDetailPage() {
 
   const [rechargeOpen, setRechargeOpen] = useState(false);
   const [rechargeAmount, setRechargeAmount] = useState("");
+
+  // Edit dialog
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editForm, setEditForm] = useState<Record<string, string | number>>({});
+
+  const openEditDialog = () => {
+    setEditForm({
+      firstName: userData.firstName || "",
+      lastName: userData.lastName || "",
+      username: userData.username || "",
+      email: userData.email || "",
+      phone: userData.phone || "",
+      password: "",
+      gender: userData.gender || "",
+      role: userData.role || "user",
+      verified: userData.verified ?? 0,
+      active: userData.active ?? 1,
+      dob: userData.dob ? new Date(userData.dob).toISOString().split("T")[0] : "",
+      bio: userData.bio || "",
+      website: userData.website || "",
+      country: userData.country || "",
+      wallet: userData.wallet ?? 0,
+    });
+    setEditDialogOpen(true);
+  };
+
+  const handleEditSubmit = () => {
+    fetcher.submit(
+      {
+        intent: "edit",
+        ...editForm,
+        verified: String(editForm.verified),
+        active: String(editForm.active),
+        wallet: String(editForm.wallet),
+      },
+      { method: "post" }
+    );
+    setEditDialogOpen(false);
+  };
 
   const handleTabChange = (tab: string) => {
     setSearchParams((prev) => {
@@ -294,6 +405,13 @@ export default function UserDetailPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={openEditDialog}
+          >
+            <Pencil className="mr-1 h-4 w-4" /> Edit
+          </Button>
           <Button
             variant={userData.active === 1 ? "outline" : "default"}
             size="sm"
@@ -560,6 +678,123 @@ export default function UserDetailPage() {
             <Button variant="outline" onClick={() => setRechargeOpen(false)}>Cancel</Button>
             <Button onClick={handleRecharge} disabled={!rechargeAmount || Number(rechargeAmount) <= 0}>
               Recharge
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit User Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Edit User</DialogTitle>
+            <DialogDescription>
+              Update user account details. Leave password blank to keep unchanged.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="ed-fn">First Name *</Label>
+              <Input id="ed-fn" value={String(editForm.firstName || "")} onChange={(e) => setEditForm((p) => ({ ...p, firstName: e.target.value }))} placeholder="First name" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ed-ln">Last Name *</Label>
+              <Input id="ed-ln" value={String(editForm.lastName || "")} onChange={(e) => setEditForm((p) => ({ ...p, lastName: e.target.value }))} placeholder="Last name" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ed-un">Username</Label>
+              <Input id="ed-un" value={String(editForm.username || "")} onChange={(e) => setEditForm((p) => ({ ...p, username: e.target.value }))} placeholder="Username" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ed-em">Email</Label>
+              <Input id="ed-em" type="email" value={String(editForm.email || "")} onChange={(e) => setEditForm((p) => ({ ...p, email: e.target.value }))} placeholder="Email address" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ed-ph">Phone</Label>
+              <Input id="ed-ph" value={String(editForm.phone || "")} onChange={(e) => setEditForm((p) => ({ ...p, phone: e.target.value }))} placeholder="Phone number" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ed-pw">Password</Label>
+              <Input id="ed-pw" type="password" value={String(editForm.password || "")} onChange={(e) => setEditForm((p) => ({ ...p, password: e.target.value }))} placeholder="Leave blank to keep unchanged" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ed-gender">Gender *</Label>
+              <Select value={String(editForm.gender || "")} onValueChange={(v) => setEditForm((p) => ({ ...p, gender: v }))}>
+                <SelectTrigger id="ed-gender"><SelectValue placeholder="Select gender" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Male">Male</SelectItem>
+                  <SelectItem value="Female">Female</SelectItem>
+                  <SelectItem value="Other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ed-role">Role</Label>
+              <Select value={String(editForm.role || "user")} onValueChange={(v) => setEditForm((p) => ({ ...p, role: v }))}>
+                <SelectTrigger id="ed-role"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="user">User</SelectItem>
+                  <SelectItem value="svip">SVIP</SelectItem>
+                  <SelectItem value="svip2">SVIP 2</SelectItem>
+                  <SelectItem value="svip3">SVIP 3</SelectItem>
+                  <SelectItem value="host">Host</SelectItem>
+                  <SelectItem value="coin_seller">Coin Seller</SelectItem>
+                  <SelectItem value="sub_agency">Sub Agency</SelectItem>
+                  <SelectItem value="agency">Agency</SelectItem>
+                  <SelectItem value="bd">BD</SelectItem>
+                  <SelectItem value="bd_head">BD Head</SelectItem>
+                  <SelectItem value="official">Official</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ed-ver">Verified</Label>
+              <Select value={String(editForm.verified ?? 0)} onValueChange={(v) => setEditForm((p) => ({ ...p, verified: Number(v) }))}>
+                <SelectTrigger id="ed-ver"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">Verified</SelectItem>
+                  <SelectItem value="0">Unverified</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ed-act">Status</Label>
+              <Select value={String(editForm.active ?? 1)} onValueChange={(v) => setEditForm((p) => ({ ...p, active: Number(v) }))}>
+                <SelectTrigger id="ed-act"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">Active</SelectItem>
+                  <SelectItem value="0">Blocked</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ed-wal">Wallet (coins)</Label>
+              <Input id="ed-wal" type="number" min="0" value={String(editForm.wallet ?? 0)} onChange={(e) => setEditForm((p) => ({ ...p, wallet: Number(e.target.value) }))} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ed-dob">Date of Birth</Label>
+              <Input id="ed-dob" type="date" value={String(editForm.dob || "")} onChange={(e) => setEditForm((p) => ({ ...p, dob: e.target.value }))} />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="ed-bio">Bio</Label>
+              <Input id="ed-bio" value={String(editForm.bio || "")} onChange={(e) => setEditForm((p) => ({ ...p, bio: e.target.value }))} placeholder="Short bio" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ed-web">Website</Label>
+              <Input id="ed-web" value={String(editForm.website || "")} onChange={(e) => setEditForm((p) => ({ ...p, website: e.target.value }))} placeholder="https://..." />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ed-cnt">Country</Label>
+              <Input id="ed-cnt" value={String(editForm.country || "")} onChange={(e) => setEditForm((p) => ({ ...p, country: e.target.value }))} placeholder="Country" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+            <Button
+              onClick={handleEditSubmit}
+              disabled={!editForm.firstName || !editForm.lastName || !editForm.gender}
+            >
+              Save Changes
             </Button>
           </DialogFooter>
         </DialogContent>

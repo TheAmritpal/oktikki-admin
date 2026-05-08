@@ -30,6 +30,81 @@ export const blockUserSchema = z.object({
   intent: z.string().optional(),
 });
 
+export const createUserSchema = z.object({
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().min(1, "Last name is required"),
+  username: z.string().optional(),
+  email: z
+    .string()
+    .email("Invalid email")
+    .optional()
+    .or(z.literal("")),
+  phone: z.string().optional(),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  gender: z.string().min(1, "Gender is required"),
+  role: z
+    .enum([
+      "user",
+      "svip",
+      "svip2",
+      "svip3",
+      "host",
+      "coin_seller",
+      "sub_agency",
+      "agency",
+      "bd",
+      "bd_head",
+      "official",
+    ])
+    .default("user"),
+  verified: z.coerce.number().min(0).max(1).default(0),
+  active: z.coerce.number().min(0).max(1).default(1),
+  dob: z.string().optional(),
+  bio: z.string().optional(),
+  website: z.string().optional(),
+  country: z.string().optional(),
+  wallet: z.coerce.number().int().nonnegative().default(0),
+});
+
+export const updateUserSchema = z.object({
+  userId: z.coerce.number().int().positive(),
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().min(1, "Last name is required"),
+  username: z.string().optional(),
+  email: z
+    .string()
+    .email("Invalid email")
+    .optional()
+    .or(z.literal("")),
+  phone: z.string().optional(),
+  password: z
+    .string()
+    .min(6, "Password must be at least 6 characters")
+    .optional()
+    .or(z.literal("")),
+  gender: z.string().min(1, "Gender is required"),
+  role: z.enum([
+    "user",
+    "svip",
+    "svip2",
+    "svip3",
+    "host",
+    "coin_seller",
+    "sub_agency",
+    "agency",
+    "bd",
+    "bd_head",
+    "official",
+  ]),
+  verified: z.coerce.number().min(0).max(1),
+  active: z.coerce.number().min(0).max(1),
+  dob: z.string().optional(),
+  bio: z.string().optional(),
+  website: z.string().optional(),
+  country: z.string().optional(),
+  wallet: z.coerce.number().int().nonnegative(),
+});
+
 export const rechargeWalletSchema = z.object({
   amount: z.coerce.number().positive("Amount must be positive"),
   intent: z.string().optional(),
