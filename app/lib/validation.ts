@@ -187,6 +187,17 @@ export const updateAppSliderSchema = z.object({
   ecommerce: z.coerce.number().int().min(0).max(1),
 });
 
+export const createStickerSchema = z.object({
+  title: z.string().min(1, "Title is required"),
+  type: z.coerce.number().int().min(0, "Type is required"),
+});
+
+export const updateStickerSchema = z.object({
+  stickerId: z.coerce.number().int().positive(),
+  title: z.string().min(1, "Title is required"),
+  type: z.coerce.number().int().min(0, "Type is required"),
+});
+
 export const paginationSchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(20),
