@@ -9,7 +9,7 @@ import {
   videoLike,
   videoComment,
 } from "~/db/schema";
-import { count, eq, like, or, and, desc, asc, sql } from "drizzle-orm";
+import { count, eq, like, or, and, desc, asc, sql, gte } from "drizzle-orm";
 import { requireAuth } from "~/lib/auth.server";
 import { logAudit } from "~/lib/audit.server";
 import { parsePagination, getOffset, getTotalPages } from "~/lib/pagination";
@@ -35,11 +35,9 @@ import {
   Heart,
   MessageCircle,
   Clock,
-  ArrowRightLeft,
   TrendingUp,
+  ArrowRightLeft,
 } from "lucide-react";
-
-// ── Types ────────────────────────────────────────────────────
 
 type VideoRow = {
   id: number;
@@ -63,8 +61,6 @@ type VideoRow = {
   viral: number;
 };
 
-// ── Loader ───────────────────────────────────────────────────
-
 export async function loader({ request }: { request: Request }) {
   const session = await requireAuth(request);
   const pagination = parsePagination(request);
@@ -74,7 +70,10 @@ export async function loader({ request }: { request: Request }) {
   const promoteFilter = url.searchParams.get("promote") || "";
   const privacyFilter = url.searchParams.get("privacy") || "";
 
-  const conditions = [];
+  const conditions = [
+    eq(video.block, 0),
+    gte(video.view, 10),
+  ];
   if (pagination.search) {
     conditions.push(
       or(
@@ -84,13 +83,12 @@ export async function loader({ request }: { request: Request }) {
       )!
     );
   }
-  if (blockFilter === "active") conditions.push(eq(video.block, 0));
   if (blockFilter === "blocked") conditions.push(eq(video.block, 1));
   if (promoteFilter === "1") conditions.push(eq(video.promote, 1));
   if (promoteFilter === "0") conditions.push(eq(video.promote, 0));
   if (privacyFilter) conditions.push(eq(video.privacyType, privacyFilter));
 
-  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+  const whereClause = and(...conditions);
 
   const sortMap: Record<string, any> = {
     view: video.view,
@@ -98,10 +96,9 @@ export async function loader({ request }: { request: Request }) {
     duration: video.duration,
     share: video.share,
   };
-  const sortColumn = sortMap[pagination.sort] || video.created;
+  const sortColumn = sortMap[pagination.sort] || video.view;
   const orderBy = pagination.order === "asc" ? asc(sortColumn) : desc(sortColumn);
 
-  // Subqueries for like & comment counts per video
   const likeCountSubquery = db
     .select({
       videoId: videoLike.videoId,
@@ -165,8 +162,6 @@ export async function loader({ request }: { request: Request }) {
     filters: { block: blockFilter, promote: promoteFilter, privacy: privacyFilter },
   };
 }
-
-// ── Action ───────────────────────────────────────────────────
 
 export async function action({ request }: { request: Request }) {
   const session = await requireAuth(request);
@@ -256,9 +251,7 @@ export async function action({ request }: { request: Request }) {
   return { errors: { general: ["Unknown action"] } };
 }
 
-// ── Page Component ───────────────────────────────────────────
-
-export default function VideosListPage() {
+export default function TrendingVideosPage() {
   const { videos, pagination, filters } = useLoaderData<typeof loader>();
   const [searchParams, setSearchParams] = useSearchParams();
   const fetcher = useFetcher();
@@ -295,7 +288,6 @@ export default function VideosListPage() {
   const handleClear = () => {
     setSearchParams((prev) => {
       prev.delete("search");
-      prev.delete("block");
       prev.delete("promote");
       prev.delete("privacy");
       prev.set("page", "1");
@@ -398,16 +390,6 @@ export default function VideosListPage() {
       ),
     },
     {
-      accessorKey: "viral",
-      header: "Viral",
-      cell: ({ row }) => (
-        <span className="inline-flex items-center gap-1 text-xs font-medium text-orange-600 dark:text-orange-400">
-          <TrendingUp className="h-3 w-3" />
-          {row.original.viral.toLocaleString()}
-        </span>
-      ),
-    },
-    {
       accessorKey: "likeCount",
       header: "Likes",
       cell: ({ row }) => (
@@ -428,6 +410,16 @@ export default function VideosListPage() {
       ),
     },
     {
+      accessorKey: "viral",
+      header: "Viral Score",
+      cell: ({ row }) => (
+        <span className="inline-flex items-center gap-1 text-xs font-medium text-orange-600 dark:text-orange-400">
+          <TrendingUp className="h-3 w-3" />
+          {row.original.viral.toLocaleString()}
+        </span>
+      ),
+    },
+    {
       accessorKey: "share",
       header: "Shares",
       cell: ({ row }) => (
@@ -444,18 +436,6 @@ export default function VideosListPage() {
           {row.original.privacyType}
         </span>
       ),
-    },
-    {
-      accessorKey: "soundName",
-      header: "Sound",
-      cell: ({ row }) =>
-        row.original.soundName ? (
-          <span className="line-clamp-1 text-xs max-w-[120px]">
-            {row.original.soundName}
-          </span>
-        ) : (
-          <span className="text-xs text-muted-foreground">—</span>
-        ),
     },
     {
       accessorKey: "block",
@@ -500,8 +480,7 @@ export default function VideosListPage() {
               onClick={() =>
                 setConfirmDialog({
                   open: true,
-                  title:
-                    row.original.block === 1 ? "Unblock Video" : "Block Video",
+                  title: row.original.block === 1 ? "Unblock Video" : "Block Video",
                   description:
                     row.original.block === 1
                       ? "Are you sure you want to unblock this video? It will be visible to users again."
@@ -579,13 +558,6 @@ export default function VideosListPage() {
             >
               <Trash2 className="mr-2 h-4 w-4" /> Delete
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() =>
-                navigate(`/admin/video-reassignment?videoId=${row.original.id}`)
-              }
-            >
-              <ArrowRightLeft className="mr-2 h-4 w-4" /> Reassign
-            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       ),
@@ -595,10 +567,9 @@ export default function VideosListPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">Videos</h2>
+        <h2 className="text-2xl font-bold tracking-tight">Trending Videos</h2>
         <p className="text-muted-foreground">
-          Manage platform videos. {pagination.total.toLocaleString()} total
-          records.
+          Videos with high engagement. {pagination.total.toLocaleString()} trending videos.
         </p>
       </div>
 
@@ -607,15 +578,6 @@ export default function VideosListPage() {
         searchValue={pagination.search || ""}
         onSearchChange={handleSearch}
         filters={[
-          {
-            name: "block",
-            label: "Status",
-            options: [
-              { value: "all", label: "All Status" },
-              { value: "active", label: "Active" },
-              { value: "blocked", label: "Blocked" },
-            ],
-          },
           {
             name: "promote",
             label: "Promoted",
@@ -637,7 +599,6 @@ export default function VideosListPage() {
           },
         ]}
         filterValues={{
-          block: filters.block || "all",
           promote: filters.promote || "all",
           privacy: filters.privacy || "all",
         }}
@@ -652,7 +613,7 @@ export default function VideosListPage() {
         totalPages={pagination.totalPages}
         total={pagination.total}
         onPageChange={handlePageChange}
-        emptyMessage="No videos found."
+        emptyMessage="No trending videos found."
       />
 
       <ConfirmDialog

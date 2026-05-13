@@ -58,6 +58,7 @@ import {
   History,
   Camera,
   ArrowRightLeft,
+  TrendingUp,
 } from "lucide-react";
 
 // ── Loader ───────────────────────────────────────────────────
@@ -395,6 +396,27 @@ export async function action({
     return { success: true, intent: "promote", promote: promoteValue };
   }
 
+  if (intent === "boost") {
+    const boostAmount = Number(formData.get("boostAmount")) || 100;
+    const [oldVideo] = await db
+      .select({ viral: video.viral })
+      .from(video)
+      .where(eq(video.id, videoId))
+      .limit(1);
+    const newViral = (oldVideo?.viral || 0) + boostAmount;
+    await db.update(video).set({ viral: newViral }).where(eq(video.id, videoId));
+    await logAudit({
+      adminId: session.adminId,
+      action: "boost_video",
+      entityType: "video",
+      entityId: videoId,
+      oldValues: { viral: oldVideo?.viral },
+      newValues: { viral: newViral },
+      request,
+    });
+    return { success: true, intent: "boost", viral: newViral };
+  }
+
   return { errors: { general: ["Unknown action"] } };
 }
 
@@ -414,10 +436,11 @@ export default function VideoDetailPage() {
     intent: string;
     blockValue?: number;
     promoteValue?: number;
+    boostAmount?: number;
   }>({ open: false, title: "", description: "", intent: "" });
 
   const handleConfirm = () => {
-    const { intent, blockValue, promoteValue } = confirmState;
+    const { intent, blockValue, promoteValue, boostAmount } = confirmState;
     if (intent === "block" && blockValue !== undefined) {
       fetcher.submit({ intent: "block", block: String(blockValue) }, { method: "post" });
     } else if (intent === "delete") {
@@ -425,6 +448,11 @@ export default function VideoDetailPage() {
     } else if (intent === "promote" && promoteValue !== undefined) {
       fetcher.submit(
         { intent: "promote", promote: String(promoteValue) },
+        { method: "post" }
+      );
+    } else if (intent === "boost" && boostAmount !== undefined) {
+      fetcher.submit(
+        { intent: "boost", boostAmount: String(boostAmount) },
         { method: "post" }
       );
     }
@@ -595,6 +623,21 @@ export default function VideoDetailPage() {
             )}
           </Button>
           <Button
+            variant="default"
+            size="sm"
+            onClick={() =>
+              setConfirmState({
+                open: true,
+                title: "Boost Video",
+                description: `Boost this video by adding 100 to its viral score? Current viral score: ${v.viral}. This will increase its visibility in the feed.`,
+                intent: "boost",
+                boostAmount: 100,
+              })
+            }
+          >
+            <TrendingUp className="mr-1 h-4 w-4" /> Boost (+100)
+          </Button>
+          <Button
             variant="destructive"
             size="sm"
             onClick={() =>
@@ -640,6 +683,7 @@ export default function VideoDetailPage() {
               value={data.engagement.watches}
               colorClass="text-violet-500"
             />
+            <StatBadge icon={TrendingUp} label="Viral Score" value={v.viral} colorClass="text-orange-600 dark:text-orange-400" />
           </div>
           {/* Secondary row */}
           <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">

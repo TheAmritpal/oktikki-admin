@@ -9,7 +9,7 @@ import {
   videoLike,
   videoComment,
 } from "~/db/schema";
-import { count, eq, like, or, and, desc, asc, sql } from "drizzle-orm";
+import { count, eq, like, or, and, desc, asc, sql, gt } from "drizzle-orm";
 import { requireAuth } from "~/lib/auth.server";
 import { logAudit } from "~/lib/audit.server";
 import { parsePagination, getOffset, getTotalPages } from "~/lib/pagination";
@@ -35,11 +35,10 @@ import {
   Heart,
   MessageCircle,
   Clock,
-  ArrowRightLeft,
   TrendingUp,
+  Flame,
+  ArrowRightLeft,
 } from "lucide-react";
-
-// ── Types ────────────────────────────────────────────────────
 
 type VideoRow = {
   id: number;
@@ -63,8 +62,6 @@ type VideoRow = {
   viral: number;
 };
 
-// ── Loader ───────────────────────────────────────────────────
-
 export async function loader({ request }: { request: Request }) {
   const session = await requireAuth(request);
   const pagination = parsePagination(request);
@@ -74,7 +71,7 @@ export async function loader({ request }: { request: Request }) {
   const promoteFilter = url.searchParams.get("promote") || "";
   const privacyFilter = url.searchParams.get("privacy") || "";
 
-  const conditions = [];
+  const conditions = [gt(video.viral, 0)];
   if (pagination.search) {
     conditions.push(
       or(
@@ -84,8 +81,8 @@ export async function loader({ request }: { request: Request }) {
       )!
     );
   }
-  if (blockFilter === "active") conditions.push(eq(video.block, 0));
   if (blockFilter === "blocked") conditions.push(eq(video.block, 1));
+  if (blockFilter === "active") conditions.push(eq(video.block, 0));
   if (promoteFilter === "1") conditions.push(eq(video.promote, 1));
   if (promoteFilter === "0") conditions.push(eq(video.promote, 0));
   if (privacyFilter) conditions.push(eq(video.privacyType, privacyFilter));
@@ -93,15 +90,15 @@ export async function loader({ request }: { request: Request }) {
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
   const sortMap: Record<string, any> = {
+    viral: video.viral,
     view: video.view,
     description: video.description,
     duration: video.duration,
     share: video.share,
   };
-  const sortColumn = sortMap[pagination.sort] || video.created;
+  const sortColumn = sortMap[pagination.sort] || video.viral;
   const orderBy = pagination.order === "asc" ? asc(sortColumn) : desc(sortColumn);
 
-  // Subqueries for like & comment counts per video
   const likeCountSubquery = db
     .select({
       videoId: videoLike.videoId,
@@ -165,8 +162,6 @@ export async function loader({ request }: { request: Request }) {
     filters: { block: blockFilter, promote: promoteFilter, privacy: privacyFilter },
   };
 }
-
-// ── Action ───────────────────────────────────────────────────
 
 export async function action({ request }: { request: Request }) {
   const session = await requireAuth(request);
@@ -253,12 +248,31 @@ export async function action({ request }: { request: Request }) {
     return { success: true, intent: "boost", viral: newViral };
   }
 
+  if (intent === "reset_viral") {
+    const videoId = Number(formData.get("videoId"));
+
+    const [oldVideo] = await db
+      .select({ viral: video.viral })
+      .from(video)
+      .where(eq(video.id, videoId))
+      .limit(1);
+    await db.update(video).set({ viral: 0 }).where(eq(video.id, videoId));
+    await logAudit({
+      adminId: session.adminId,
+      action: "reset_viral_video",
+      entityType: "video",
+      entityId: videoId,
+      oldValues: { viral: oldVideo?.viral },
+      newValues: { viral: 0 },
+      request,
+    });
+    return { success: true, intent: "reset_viral" };
+  }
+
   return { errors: { general: ["Unknown action"] } };
 }
 
-// ── Page Component ───────────────────────────────────────────
-
-export default function VideosListPage() {
+export default function ViralVideosPage() {
   const { videos, pagination, filters } = useLoaderData<typeof loader>();
   const [searchParams, setSearchParams] = useSearchParams();
   const fetcher = useFetcher();
@@ -329,6 +343,11 @@ export default function VideosListPage() {
         { intent: "boost", videoId: String(videoId), boostAmount: String(boostAmount) },
         { method: "post" }
       );
+    } else if (intent === "reset_viral") {
+      fetcher.submit(
+        { intent: "reset_viral", videoId: String(videoId) },
+        { method: "post" }
+      );
     }
     setConfirmDialog((prev) => ({ ...prev, open: false }));
   };
@@ -389,21 +408,21 @@ export default function VideosListPage() {
       ),
     },
     {
+      accessorKey: "viral",
+      header: "Viral Score",
+      cell: ({ row }) => (
+        <span className="inline-flex items-center gap-1 text-sm font-semibold text-orange-600 dark:text-orange-400">
+          <Flame className="h-4 w-4" />
+          {row.original.viral.toLocaleString()}
+        </span>
+      ),
+    },
+    {
       accessorKey: "view",
       header: "Views",
       cell: ({ row }) => (
         <span className="font-medium tabular-nums">
           {(row.original.view as number).toLocaleString()}
-        </span>
-      ),
-    },
-    {
-      accessorKey: "viral",
-      header: "Viral",
-      cell: ({ row }) => (
-        <span className="inline-flex items-center gap-1 text-xs font-medium text-orange-600 dark:text-orange-400">
-          <TrendingUp className="h-3 w-3" />
-          {row.original.viral.toLocaleString()}
         </span>
       ),
     },
@@ -444,18 +463,6 @@ export default function VideosListPage() {
           {row.original.privacyType}
         </span>
       ),
-    },
-    {
-      accessorKey: "soundName",
-      header: "Sound",
-      cell: ({ row }) =>
-        row.original.soundName ? (
-          <span className="line-clamp-1 text-xs max-w-[120px]">
-            {row.original.soundName}
-          </span>
-        ) : (
-          <span className="text-xs text-muted-foreground">—</span>
-        ),
     },
     {
       accessorKey: "block",
@@ -500,8 +507,7 @@ export default function VideosListPage() {
               onClick={() =>
                 setConfirmDialog({
                   open: true,
-                  title:
-                    row.original.block === 1 ? "Unblock Video" : "Block Video",
+                  title: row.original.block === 1 ? "Unblock Video" : "Block Video",
                   description:
                     row.original.block === 1
                       ? "Are you sure you want to unblock this video? It will be visible to users again."
@@ -565,6 +571,19 @@ export default function VideosListPage() {
               <TrendingUp className="mr-2 h-4 w-4" /> Boost (+100)
             </DropdownMenuItem>
             <DropdownMenuItem
+              onClick={() =>
+                setConfirmDialog({
+                  open: true,
+                  title: "Reset Viral Score",
+                  description: `Reset viral score to 0? Current score: ${row.original.viral}. This will remove the video's boosted visibility.`,
+                  intent: "reset_viral",
+                  videoId: row.original.id,
+                })
+              }
+            >
+              <Flame className="mr-2 h-4 w-4" /> Reset Viral
+            </DropdownMenuItem>
+            <DropdownMenuItem
               className="text-destructive focus:text-destructive"
               onClick={() =>
                 setConfirmDialog({
@@ -579,13 +598,6 @@ export default function VideosListPage() {
             >
               <Trash2 className="mr-2 h-4 w-4" /> Delete
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() =>
-                navigate(`/admin/video-reassignment?videoId=${row.original.id}`)
-              }
-            >
-              <ArrowRightLeft className="mr-2 h-4 w-4" /> Reassign
-            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       ),
@@ -595,10 +607,9 @@ export default function VideosListPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">Videos</h2>
+        <h2 className="text-2xl font-bold tracking-tight">Viral Videos</h2>
         <p className="text-muted-foreground">
-          Manage platform videos. {pagination.total.toLocaleString()} total
-          records.
+          Videos with boosted viral scores. {pagination.total.toLocaleString()} viral videos.
         </p>
       </div>
 
@@ -652,7 +663,7 @@ export default function VideosListPage() {
         totalPages={pagination.totalPages}
         total={pagination.total}
         onPageChange={handlePageChange}
-        emptyMessage="No videos found."
+        emptyMessage="No viral videos found."
       />
 
       <ConfirmDialog
