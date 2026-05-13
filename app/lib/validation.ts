@@ -198,6 +198,20 @@ export const updateStickerSchema = z.object({
   type: z.coerce.number().int().min(0, "Type is required"),
 });
 
+export const resetPasswordSchema = z.object({
+  userId: z.coerce.number().int().positive(),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+});
+
+export const sendWarningSchema = z.object({
+  userId: z.coerce.number().int().positive(),
+  message: z.string().min(1, "Message is required"),
+});
+
+export const removeTickSchema = z.object({
+  userId: z.coerce.number().int().positive(),
+});
+
 export const paginationSchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(20),

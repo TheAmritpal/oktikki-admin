@@ -3,11 +3,11 @@ import { Link, useLoaderData, useFetcher, useSearchParams } from "react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import { redirect } from "react-router";
 import { db } from "~/db/index.server";
-import { user, video, follower, order, transaction, liveStreaming } from "~/db/schema";
-import { eq, count, desc, and, sql } from "drizzle-orm";
+import { user, video, follower, order, transaction, liveStreaming, giftSend, gift, withdrawRequest, reportUser, officialNotification } from "~/db/schema";
+import { eq, count, desc, and, or, sql } from "drizzle-orm";
 import { requireAuth, hashPassword } from "~/lib/auth.server";
 import { logAudit } from "~/lib/audit.server";
-import { blockUserSchema, rechargeWalletSchema, updateUserSchema } from "~/lib/validation";
+import { blockUserSchema, rechargeWalletSchema, updateUserSchema, resetPasswordSchema, sendWarningSchema, removeTickSchema } from "~/lib/validation";
 import { DataTable } from "~/components/data-table";
 import { StatCard } from "~/components/stat-card";
 import { ConfirmDialog } from "~/components/confirm-dialog";
@@ -20,7 +20,7 @@ import { Label } from "~/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "~/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
-import { ArrowLeft, ShieldOff, ShieldCheck, Trash2, Wallet, CheckCircle2, XCircle, Pencil } from "lucide-react";
+import { ArrowLeft, ShieldOff, ShieldCheck, ShieldAlert, Ban, Trash2, Wallet, CheckCircle2, XCircle, Pencil, KeyRound, MessageSquare, Flame } from "lucide-react";
 
 export async function loader({ request, params }: { request: Request; params: { id: string } }) {
   const session = await requireAuth(request);
@@ -119,6 +119,96 @@ export async function loader({ request, params }: { request: Request; params: { 
       db.select({ total: count() }).from(liveStreaming).where(eq(liveStreaming.userId, userId)),
     ]);
     tabData = { streams, streamCount, streamPage: page, streamTotalPages: Math.ceil(streamCount / limit) };
+  }
+
+  if (tab === "gifts") {
+    const page = Number(url.searchParams.get("gpage")) || 1;
+    const limit = 10;
+    const offset = (page - 1) * limit;
+    const [gifts, [{ total: giftCount }]] = await Promise.all([
+      db.select({
+        id: giftSend.id,
+        title: giftSend.title,
+        coin: giftSend.coin,
+        image: giftSend.image,
+        senderId: giftSend.senderId,
+        receiverId: giftSend.receiverId,
+        totalCoins: giftSend.totalCoins,
+        created: giftSend.created,
+      }).from(giftSend)
+        .where(or(eq(giftSend.senderId, userId), eq(giftSend.receiverId, userId)))
+        .orderBy(desc(giftSend.created)).limit(limit).offset(offset),
+      db.select({ total: count() }).from(giftSend)
+        .where(or(eq(giftSend.senderId, userId), eq(giftSend.receiverId, userId))),
+    ]);
+    tabData = { gifts, giftCount, giftPage: page, giftTotalPages: Math.ceil(giftCount / limit) };
+  }
+
+  if (tab === "flames") {
+    const page = Number(url.searchParams.get("fpage")) || 1;
+    const limit = 10;
+    const offset = (page - 1) * limit;
+    const [flameGifts, [{ total: flameCount }]] = await Promise.all([
+      db.select({
+        id: giftSend.id,
+        title: giftSend.title,
+        coin: giftSend.coin,
+        totalCoins: giftSend.totalCoins,
+        created: giftSend.created,
+      }).from(giftSend).where(eq(giftSend.senderId, userId))
+        .orderBy(desc(giftSend.created)).limit(limit).offset(offset),
+      db.select({ total: count() }).from(giftSend).where(eq(giftSend.senderId, userId)),
+    ]);
+    tabData = { flameGifts, flameCount, flamePage: page, flameTotalPages: Math.ceil(flameCount / limit) };
+  }
+
+  if (tab === "withdrawals") {
+    const page = Number(url.searchParams.get("wipage")) || 1;
+    const limit = 10;
+    const offset = (page - 1) * limit;
+    const [withdrawals, [{ total: withdrawalCount }]] = await Promise.all([
+      db.select({
+        id: withdrawRequest.id,
+        amount: withdrawRequest.amount,
+        coin: withdrawRequest.coin,
+        status: withdrawRequest.status,
+        email: withdrawRequest.email,
+        created: withdrawRequest.created,
+      }).from(withdrawRequest).where(eq(withdrawRequest.userId, userId))
+        .orderBy(desc(withdrawRequest.created)).limit(limit).offset(offset),
+      db.select({ total: count() }).from(withdrawRequest).where(eq(withdrawRequest.userId, userId)),
+    ]);
+    tabData = { withdrawals, withdrawalCount, withdrawalPage: page, withdrawalTotalPages: Math.ceil(withdrawalCount / limit) };
+  }
+
+  if (tab === "reports") {
+    const page = Number(url.searchParams.get("rpage")) || 1;
+    const limit = 10;
+    const offset = (page - 1) * limit;
+    const [reports, [{ total: reportCount }]] = await Promise.all([
+      db.select({
+        id: reportUser.id,
+        userId: reportUser.userId,
+        reportUserId: reportUser.reportUserId,
+        reportReasonTitle: reportUser.reportReasonTitle,
+        description: reportUser.description,
+        created: reportUser.created,
+      }).from(reportUser).where(eq(reportUser.reportUserId, userId))
+        .orderBy(desc(reportUser.created)).limit(limit).offset(offset),
+      db.select({ total: count() }).from(reportUser).where(eq(reportUser.reportUserId, userId)),
+    ]);
+    tabData = { reports, reportCount, reportPage: page, reportTotalPages: Math.ceil(reportCount / limit) };
+  }
+
+  if (tab === "devices") {
+    tabData = {
+      deviceInfo: {
+        device: userData.device,
+        ip: userData.ip,
+        version: userData.version,
+        deviceToken: userData.deviceToken,
+      },
+    };
   }
 
   return {
@@ -267,6 +357,65 @@ export async function action({ request, params }: { request: Request; params: { 
     return { success: true, intent: "edit" };
   }
 
+  if (intent === "remove_tick") {
+    const result = removeTickSchema.safeParse({ userId });
+    if (!result.success) return { errors: result.error.flatten().fieldErrors };
+
+    const [oldUser] = await db.select({ verified: user.verified }).from(user).where(eq(user.id, userId)).limit(1);
+    await db.update(user).set({ verified: 0 }).where(eq(user.id, userId));
+    await logAudit({
+      adminId: session.adminId,
+      action: "remove_tick",
+      entityType: "user",
+      entityId: userId,
+      oldValues: { verified: oldUser?.verified },
+      newValues: { verified: 0 },
+      request,
+    });
+    return { success: true, intent: "remove_tick" };
+  }
+
+  if (intent === "reset_password") {
+    const password = String(formData.get("password") || "");
+    const result = resetPasswordSchema.safeParse({ userId, password });
+    if (!result.success) return { errors: result.error.flatten().fieldErrors };
+
+    const hashed = await hashPassword(result.data.password);
+    await db.update(user).set({ password: hashed }).where(eq(user.id, userId));
+    await logAudit({
+      adminId: session.adminId,
+      action: "reset_password",
+      entityType: "user",
+      entityId: userId,
+      request,
+    });
+    return { success: true, intent: "reset_password" };
+  }
+
+  if (intent === "send_warning") {
+    const message = String(formData.get("message") || "");
+    const result = sendWarningSchema.safeParse({ userId, message });
+    if (!result.success) return { errors: result.error.flatten().fieldErrors };
+
+    await db.insert(officialNotification).values({
+      title: "Warning",
+      message: result.data.message,
+      type: "warning",
+      targetUserId: userId,
+      isRead: 0,
+      created: new Date(),
+    });
+    await logAudit({
+      adminId: session.adminId,
+      action: "send_warning",
+      entityType: "user",
+      entityId: userId,
+      newValues: { message: result.data.message },
+      request,
+    });
+    return { success: true, intent: "send_warning" };
+  }
+
   return { errors: { general: ["Unknown action"] } };
 }
 
@@ -276,6 +425,12 @@ const ORDER_STATUS_MAP: Record<number, string> = {
   2: "shipped",
   3: "delivered",
   4: "cancelled",
+};
+
+const WITHDRAWAL_STATUS_MAP: Record<number, string> = {
+  0: "pending",
+  1: "approved",
+  2: "rejected",
 };
 
 function formatDuration(seconds: number): string {
@@ -309,6 +464,14 @@ export default function UserDetailPage() {
   // Edit dialog
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editForm, setEditForm] = useState<Record<string, string | number>>({});
+
+  // Reset password dialog
+  const [resetPwOpen, setResetPwOpen] = useState(false);
+  const [resetPwValue, setResetPwValue] = useState("");
+
+  // Send warning dialog
+  const [warningOpen, setWarningOpen] = useState(false);
+  const [warningMessage, setWarningMessage] = useState("");
 
   const openEditDialog = () => {
     setEditForm({
@@ -371,6 +534,26 @@ export default function UserDetailPage() {
     }
   };
 
+  const handleRemoveTick = () => {
+    fetcher.submit({ intent: "remove_tick" }, { method: "post" });
+  };
+
+  const handleResetPassword = () => {
+    if (resetPwValue.length >= 6) {
+      fetcher.submit({ intent: "reset_password", password: resetPwValue }, { method: "post" });
+      setResetPwOpen(false);
+      setResetPwValue("");
+    }
+  };
+
+  const handleSendWarning = () => {
+    if (warningMessage.trim()) {
+      fetcher.submit({ intent: "send_warning", message: warningMessage }, { method: "post" });
+      setWarningOpen(false);
+      setWarningMessage("");
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Back button */}
@@ -404,12 +587,8 @@ export default function UserDetailPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={openEditDialog}
-          >
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={openEditDialog}>
             <Pencil className="mr-1 h-4 w-4" /> Edit
           </Button>
           <Button
@@ -431,11 +610,18 @@ export default function UserDetailPage() {
               <><ShieldCheck className="mr-1 h-4 w-4" /> Unblock</>
             )}
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setRechargeOpen(true)}
-          >
+          {userData.verified === 1 && (
+            <Button variant="outline" size="sm" onClick={handleRemoveTick}>
+              <Ban className="mr-1 h-4 w-4" /> Remove Tick
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={() => { setResetPwValue(""); setResetPwOpen(true); }}>
+            <KeyRound className="mr-1 h-4 w-4" /> Reset Password
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => { setWarningMessage(""); setWarningOpen(true); }}>
+            <MessageSquare className="mr-1 h-4 w-4" /> Send Warning
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setRechargeOpen(true)}>
             <Wallet className="mr-1 h-4 w-4" /> Recharge
           </Button>
           <Button
@@ -455,13 +641,18 @@ export default function UserDetailPage() {
 
       {/* Tabs */}
       <Tabs value={currentTab} onValueChange={handleTabChange}>
-        <TabsList>
+        <TabsList className="flex-wrap">
           <TabsTrigger value="profile">Profile</TabsTrigger>
+          <TabsTrigger value="gifts">Gifts</TabsTrigger>
+          <TabsTrigger value="flames">Flames</TabsTrigger>
           <TabsTrigger value="videos">Videos</TabsTrigger>
           <TabsTrigger value="followers">Followers</TabsTrigger>
           <TabsTrigger value="orders">Orders</TabsTrigger>
           <TabsTrigger value="wallet">Wallet</TabsTrigger>
-          <TabsTrigger value="activity">Activity</TabsTrigger>
+          <TabsTrigger value="withdrawals">Withdrawals</TabsTrigger>
+          <TabsTrigger value="reports">Reports</TabsTrigger>
+          <TabsTrigger value="devices">Devices</TabsTrigger>
+          <TabsTrigger value="activity">Live History</TabsTrigger>
         </TabsList>
 
         {/* Profile Tab */}
@@ -621,7 +812,100 @@ export default function UserDetailPage() {
           )}
         </TabsContent>
 
-        {/* Activity Tab */}
+        {/* Gifts Tab */}
+        <TabsContent value="gifts" className="mt-4">
+          {data.tab === "gifts" && "gifts" in data ? (
+            <GiftsTab
+              gifts={(data as any).gifts}
+              giftCount={(data as any).giftCount}
+              giftPage={(data as any).giftPage}
+              giftTotalPages={(data as any).giftTotalPages}
+              userId={userData.id}
+              onGiftPageChange={(page: number) => {
+                setSearchParams((prev) => {
+                  prev.set("gpage", String(page));
+                  return prev;
+                });
+              }}
+            />
+          ) : (
+            <p className="text-muted-foreground py-8 text-center">Switch to this tab to load gift history.</p>
+          )}
+        </TabsContent>
+
+        {/* Flames Tab */}
+        <TabsContent value="flames" className="mt-4">
+          {data.tab === "flames" && "flameGifts" in data ? (
+            <FlamesTab
+              totalFlems={userData.totalFlems ?? 0}
+              level={userData.level ?? 1}
+              formattedLevel={userData.formattedLevel ?? "Beginner"}
+              flameGifts={(data as any).flameGifts}
+              flameCount={(data as any).flameCount}
+              flamePage={(data as any).flamePage}
+              flameTotalPages={(data as any).flameTotalPages}
+              onFlamePageChange={(page: number) => {
+                setSearchParams((prev) => {
+                  prev.set("fpage", String(page));
+                  return prev;
+                });
+              }}
+            />
+          ) : (
+            <p className="text-muted-foreground py-8 text-center">Switch to this tab to load flame data.</p>
+          )}
+        </TabsContent>
+
+        {/* Withdrawals Tab */}
+        <TabsContent value="withdrawals" className="mt-4">
+          {data.tab === "withdrawals" && "withdrawals" in data ? (
+            <WithdrawalsTab
+              withdrawals={(data as any).withdrawals}
+              withdrawalCount={(data as any).withdrawalCount}
+              withdrawalPage={(data as any).withdrawalPage}
+              withdrawalTotalPages={(data as any).withdrawalTotalPages}
+              onWithdrawalPageChange={(page: number) => {
+                setSearchParams((prev) => {
+                  prev.set("wipage", String(page));
+                  return prev;
+                });
+              }}
+            />
+          ) : (
+            <p className="text-muted-foreground py-8 text-center">Switch to this tab to load withdrawal history.</p>
+          )}
+        </TabsContent>
+
+        {/* Reports Tab */}
+        <TabsContent value="reports" className="mt-4">
+          {data.tab === "reports" && "reports" in data ? (
+            <ReportsTab
+              reports={(data as any).reports}
+              reportCount={(data as any).reportCount}
+              reportPage={(data as any).reportPage}
+              reportTotalPages={(data as any).reportTotalPages}
+              onReportPageChange={(page: number) => {
+                setSearchParams((prev) => {
+                  prev.set("rpage", String(page));
+                  return prev;
+                });
+              }}
+            />
+          ) : (
+            <p className="text-muted-foreground py-8 text-center">Switch to this tab to load report data.</p>
+          )}
+        </TabsContent>
+
+        {/* Devices Tab */}
+        <TabsContent value="devices" className="mt-4">
+          {data.tab === "devices" && "deviceInfo" in data ? (
+            <DevicesTab deviceInfo={(data as any).deviceInfo} />
+          ) : (
+            <p className="text-muted-foreground py-8 text-center">Switch to this tab to load device info.</p>
+          )}
+        </TabsContent>
+
+        {/* Live History Tab */}
         <TabsContent value="activity" className="mt-4">
           {data.tab === "activity" && "streams" in data ? (
             <ActivityTab
@@ -637,7 +921,7 @@ export default function UserDetailPage() {
               }}
             />
           ) : (
-            <p className="text-muted-foreground py-8 text-center">Switch to this tab to load activity data.</p>
+            <p className="text-muted-foreground py-8 text-center">Switch to this tab to load live history data.</p>
           )}
         </TabsContent>
       </Tabs>
@@ -795,6 +1079,66 @@ export default function UserDetailPage() {
               disabled={!editForm.firstName || !editForm.lastName || !editForm.gender}
             >
               Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset Password Dialog */}
+      <Dialog open={resetPwOpen} onOpenChange={setResetPwOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+            <DialogDescription>
+              Set a new password for {userData.firstName}. The user will need to use this new password to log in.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="rp-pw">New Password</Label>
+              <Input
+                id="rp-pw"
+                type="password"
+                value={resetPwValue}
+                onChange={(e) => setResetPwValue(e.target.value)}
+                placeholder="Minimum 6 characters"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResetPwOpen(false)}>Cancel</Button>
+            <Button onClick={handleResetPassword} disabled={resetPwValue.length < 6}>
+              Reset Password
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Send Warning Dialog */}
+      <Dialog open={warningOpen} onOpenChange={setWarningOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Send Warning</DialogTitle>
+            <DialogDescription>
+              Send a warning notification to {userData.firstName}. This will appear in their official notifications.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="sw-msg">Warning Message</Label>
+              <textarea
+                id="sw-msg"
+                className="flex min-h-[100px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                value={warningMessage}
+                onChange={(e) => setWarningMessage(e.target.value)}
+                placeholder="Describe the reason for this warning..."
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setWarningOpen(false)}>Cancel</Button>
+            <Button onClick={handleSendWarning} disabled={!warningMessage.trim()}>
+              Send Warning
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1040,5 +1384,311 @@ function ActivityTab({ streams, streamCount, streamPage, streamTotalPages, onStr
         emptyMessage="No streaming activity found."
       />
     </div>
+  );
+}
+
+/* ── Gifts Tab ── */
+
+function GiftsTab({ gifts, giftCount, giftPage, giftTotalPages, userId, onGiftPageChange }: {
+  gifts: any[];
+  giftCount: number;
+  giftPage: number;
+  giftTotalPages: number;
+  userId: number;
+  onGiftPageChange: (page: number) => void;
+}) {
+  const columns: ColumnDef<any>[] = [
+    {
+      accessorKey: "image",
+      header: "Gift",
+      cell: ({ row }) => (
+        row.original.image ? (
+          <img src={row.original.image} alt="" className="h-8 w-8 rounded object-cover" />
+        ) : (
+          <div className="h-8 w-8 rounded bg-muted flex items-center justify-center text-xs text-muted-foreground">N/A</div>
+        )
+      ),
+    },
+    { accessorKey: "title", header: "Gift" },
+    {
+      accessorKey: "coin",
+      header: "Coins",
+      cell: ({ row }) => <span>{(row.original.coin as number).toLocaleString()}</span>,
+    },
+    {
+      id: "direction",
+      header: "Direction",
+      cell: ({ row }) => (
+        <StatusBadge status={row.original.senderId === userId ? "sent" : "received"} />
+      ),
+    },
+    {
+      id: "otherParty",
+      header: "Other Party",
+      cell: ({ row }) => (
+        <span>{row.original.senderId === userId ? `Receiver #${row.original.receiverId}` : `Sender #${row.original.senderId}`}</span>
+      ),
+    },
+    {
+      accessorKey: "totalCoins",
+      header: "Total Coins",
+      cell: ({ row }) => <span>{(row.original.totalCoins ?? row.original.coin).toLocaleString()}</span>,
+    },
+    {
+      accessorKey: "created",
+      header: "Date",
+      cell: ({ row }) => (
+        <span className="text-sm text-muted-foreground">
+          {new Date(row.original.created).toLocaleDateString()}
+        </span>
+      ),
+    },
+  ];
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-muted-foreground">{giftCount} gifts</p>
+      <DataTable
+        columns={columns}
+        data={gifts}
+        page={giftPage}
+        totalPages={giftTotalPages}
+        total={giftCount}
+        onPageChange={onGiftPageChange}
+        emptyMessage="No gift history found."
+      />
+    </div>
+  );
+}
+
+/* ── Flames Tab ── */
+
+function FlamesTab({ totalFlems, level, formattedLevel, flameGifts, flameCount, flamePage, flameTotalPages, onFlamePageChange }: {
+  totalFlems: number;
+  level: number;
+  formattedLevel: string;
+  flameGifts: any[];
+  flameCount: number;
+  flamePage: number;
+  flameTotalPages: number;
+  onFlamePageChange: (page: number) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Total Flems</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{totalFlems.toLocaleString()}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Level</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{level}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Category</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{formattedLevel}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <p className="text-sm text-muted-foreground">Flems are earned by sending gifts. Below are the gift transactions that contribute to the flame level.</p>
+
+      <div className="space-y-2">
+        <p className="text-sm text-muted-foreground">{flameCount} gift transactions</p>
+        <DataTable
+          columns={[
+            { accessorKey: "title", header: "Gift" },
+            {
+              accessorKey: "coin",
+              header: "Coins",
+              cell: ({ row }) => <span>{(row.original.coin as number).toLocaleString()}</span>,
+            },
+            {
+              accessorKey: "totalCoins",
+              header: "Total Coins",
+              cell: ({ row }) => <span>{(row.original.totalCoins ?? row.original.coin).toLocaleString()}</span>,
+            },
+            {
+              accessorKey: "created",
+              header: "Date",
+              cell: ({ row }) => (
+                <span className="text-sm text-muted-foreground">
+                  {new Date(row.original.created).toLocaleDateString()}
+                </span>
+              ),
+            },
+          ]}
+          data={flameGifts}
+          page={flamePage}
+          totalPages={flameTotalPages}
+          total={flameCount}
+          onPageChange={onFlamePageChange}
+          emptyMessage="No gift transactions found."
+        />
+      </div>
+    </div>
+  );
+}
+
+/* ── Withdrawals Tab ── */
+
+function WithdrawalsTab({ withdrawals, withdrawalCount, withdrawalPage, withdrawalTotalPages, onWithdrawalPageChange }: {
+  withdrawals: any[];
+  withdrawalCount: number;
+  withdrawalPage: number;
+  withdrawalTotalPages: number;
+  onWithdrawalPageChange: (page: number) => void;
+}) {
+  const columns: ColumnDef<any>[] = [
+    { accessorKey: "id", header: "ID" },
+    {
+      accessorKey: "amount",
+      header: "Amount",
+      cell: ({ row }) => <span>${Number(row.original.amount).toFixed(2)}</span>,
+    },
+    {
+      accessorKey: "coin",
+      header: "Coins",
+      cell: ({ row }) => <span>{(row.original.coin as number).toLocaleString()}</span>,
+    },
+    {
+      accessorKey: "email",
+      header: "Email",
+      cell: ({ row }) => <span className="text-sm">{row.original.email || "—"}</span>,
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }) => (
+        <StatusBadge status={WITHDRAWAL_STATUS_MAP[row.original.status] || String(row.original.status)} />
+      ),
+    },
+    {
+      accessorKey: "created",
+      header: "Date",
+      cell: ({ row }) => (
+        <span className="text-sm text-muted-foreground">
+          {new Date(row.original.created).toLocaleDateString()}
+        </span>
+      ),
+    },
+  ];
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-muted-foreground">{withdrawalCount} withdrawals</p>
+      <DataTable
+        columns={columns}
+        data={withdrawals}
+        page={withdrawalPage}
+        totalPages={withdrawalTotalPages}
+        total={withdrawalCount}
+        onPageChange={onWithdrawalPageChange}
+        emptyMessage="No withdrawal history found."
+      />
+    </div>
+  );
+}
+
+/* ── Reports Tab ── */
+
+function ReportsTab({ reports, reportCount, reportPage, reportTotalPages, onReportPageChange }: {
+  reports: any[];
+  reportCount: number;
+  reportPage: number;
+  reportTotalPages: number;
+  onReportPageChange: (page: number) => void;
+}) {
+  const columns: ColumnDef<any>[] = [
+    { accessorKey: "id", header: "ID" },
+    {
+      accessorKey: "userId",
+      header: "Reported By (User ID)",
+      cell: ({ row }) => <span>{row.original.userId}</span>,
+    },
+    {
+      accessorKey: "reportReasonTitle",
+      header: "Reason",
+      cell: ({ row }) => <span className="text-sm">{row.original.reportReasonTitle}</span>,
+    },
+    {
+      accessorKey: "description",
+      header: "Description",
+      cell: ({ row }) => (
+        <span className="line-clamp-2 text-sm max-w-[250px]">{row.original.description || "—"}</span>
+      ),
+    },
+    {
+      accessorKey: "created",
+      header: "Date",
+      cell: ({ row }) => (
+        <span className="text-sm text-muted-foreground">
+          {new Date(row.original.created).toLocaleDateString()}
+        </span>
+      ),
+    },
+  ];
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-muted-foreground">{reportCount} reports</p>
+      <DataTable
+        columns={columns}
+        data={reports}
+        page={reportPage}
+        totalPages={reportTotalPages}
+        total={reportCount}
+        onPageChange={onReportPageChange}
+        emptyMessage="No reports found."
+      />
+    </div>
+  );
+}
+
+/* ── Devices Tab ── */
+
+function DevicesTab({ deviceInfo }: {
+  deviceInfo: { device: string; ip: string; version: string; deviceToken: string };
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Device Information</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <p className="text-sm text-muted-foreground">Device</p>
+            <p className="font-medium break-all">{deviceInfo.device || "—"}</p>
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">IP Address</p>
+            <p className="font-medium">{deviceInfo.ip || "—"}</p>
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">App Version</p>
+            <p className="font-medium">{deviceInfo.version || "—"}</p>
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">Device Token</p>
+            <p className="font-medium break-all text-xs">{deviceInfo.deviceToken || "—"}</p>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground mt-4">
+          Note: Only the current device information is available. Historical device data is not stored.
+        </p>
+      </CardContent>
+    </Card>
   );
 }

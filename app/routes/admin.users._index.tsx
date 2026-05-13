@@ -29,17 +29,33 @@ export async function loader({ request }: { request: Request }) {
   const statusFilter = url.searchParams.get("status") || "";
   const roleFilter = url.searchParams.get("role") || "";
   const verifiedFilter = url.searchParams.get("verified") || "";
+  const searchType = url.searchParams.get("searchType") || "all";
 
   const conditions = [];
   if (pagination.search) {
-    conditions.push(
-      or(
-        like(user.username, `%${pagination.search}%`),
-        like(user.email, `%${pagination.search}%`),
-        like(user.firstName, `%${pagination.search}%`),
-        like(user.lastName, `%${pagination.search}%`)
-      )!
-    );
+    const s = `%${pagination.search}%`;
+    if (searchType === "id") {
+      conditions.push(eq(user.id, Number(pagination.search)));
+    } else if (searchType === "username") {
+      conditions.push(like(user.username, s)!);
+    } else if (searchType === "phone") {
+      conditions.push(like(user.phone, s)!);
+    } else if (searchType === "email") {
+      conditions.push(like(user.email, s)!);
+    } else if (searchType === "device") {
+      conditions.push(like(user.device, s)!);
+    } else if (searchType === "ip") {
+      conditions.push(like(user.ip, s)!);
+    } else {
+      conditions.push(
+        or(
+          like(user.username, s),
+          like(user.email, s),
+          like(user.firstName, s),
+          like(user.lastName, s)
+        )!
+      );
+    }
   }
   if (statusFilter === "active") conditions.push(eq(user.active, 1));
   if (statusFilter === "blocked") conditions.push(eq(user.active, 0));
@@ -83,7 +99,7 @@ export async function loader({ request }: { request: Request }) {
     session,
     users,
     pagination: { ...pagination, total, totalPages },
-    filters: { status: statusFilter, role: roleFilter, verified: verifiedFilter },
+    filters: { status: statusFilter, role: roleFilter, verified: verifiedFilter, searchType },
   };
 }
 
@@ -300,6 +316,16 @@ export async function action({ request }: { request: Request }) {
   return { errors: { general: ["Unknown action"] } };
 }
 
+const SEARCH_TYPE_OPTIONS = [
+  { value: "all", label: "All Fields" },
+  { value: "id", label: "User ID" },
+  { value: "username", label: "Username" },
+  { value: "phone", label: "Phone" },
+  { value: "email", label: "Email" },
+  { value: "device", label: "Device ID" },
+  { value: "ip", label: "IP Address" },
+];
+
 const ROLE_OPTIONS = [
   { value: "all", label: "All Roles" },
   { value: "user", label: "User" },
@@ -329,8 +355,19 @@ type UserRow = {
   created: Date;
 };
 
+const SEARCH_PLACEHOLDERS: Record<string, string> = {
+  all: "Search by username, email, or name...",
+  id: "Search by user ID...",
+  username: "Search by username...",
+  phone: "Search by phone number...",
+  email: "Search by email...",
+  device: "Search by device ID...",
+  ip: "Search by IP address...",
+};
+
 export default function UsersListPage() {
   const { users, pagination, filters } = useLoaderData<typeof loader>();
+  const searchType = filters.searchType || "all";
   const [searchParams, setSearchParams] = useSearchParams();
   const fetcher = useFetcher();
   const navigate = useNavigate();
@@ -393,6 +430,15 @@ export default function UsersListPage() {
     });
   };
 
+  const handleSearchTypeChange = (value: string) => {
+    setSearchParams((prev) => {
+      if (value && value !== "all") prev.set("searchType", value);
+      else prev.delete("searchType");
+      prev.set("page", "1");
+      return prev;
+    });
+  };
+
   const handleFilterChange = (name: string, value: string) => {
     setSearchParams((prev) => {
       if (value && value !== "all") prev.set(name, value);
@@ -405,6 +451,7 @@ export default function UsersListPage() {
   const handleClear = () => {
     setSearchParams((prev) => {
       prev.delete("search");
+      prev.delete("searchType");
       prev.delete("status");
       prev.delete("role");
       prev.delete("verified");
@@ -634,43 +681,55 @@ export default function UsersListPage() {
         </Button>
       </div>
 
-      <SearchFilterBar
-        searchPlaceholder="Search by username, email, or name..."
-        searchValue={pagination.search || ""}
-        onSearchChange={handleSearch}
-        filters={[
-          {
-            name: "status",
-            label: "Status",
-            options: [
-              { value: "all", label: "All Status" },
-              { value: "active", label: "Active" },
-              { value: "blocked", label: "Blocked" },
-            ],
-          },
-          {
-            name: "role",
-            label: "Role",
-            options: ROLE_OPTIONS,
-          },
-          {
-            name: "verified",
-            label: "Verified",
-            options: [
-              { value: "all", label: "All" },
-              { value: "1", label: "Verified" },
-              { value: "0", label: "Unverified" },
-            ],
-          },
-        ]}
-        filterValues={{
-          status: filters.status || "all",
-          role: filters.role || "all",
-          verified: filters.verified || "all",
-        }}
-        onFilterChange={handleFilterChange}
-        onClear={handleClear}
-      />
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+        <Select value={searchType} onValueChange={handleSearchTypeChange}>
+          <SelectTrigger className="w-[140px] shrink-0">
+            <SelectValue placeholder="Search by" />
+          </SelectTrigger>
+          <SelectContent>
+            {SEARCH_TYPE_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <SearchFilterBar
+          searchPlaceholder={SEARCH_PLACEHOLDERS[searchType] || "Search..."}
+          searchValue={pagination.search || ""}
+          onSearchChange={handleSearch}
+          filters={[
+            {
+              name: "status",
+              label: "Status",
+              options: [
+                { value: "all", label: "All Status" },
+                { value: "active", label: "Active" },
+                { value: "blocked", label: "Blocked" },
+              ],
+            },
+            {
+              name: "role",
+              label: "Role",
+              options: ROLE_OPTIONS,
+            },
+            {
+              name: "verified",
+              label: "Verified",
+              options: [
+                { value: "all", label: "All" },
+                { value: "1", label: "Verified" },
+                { value: "0", label: "Unverified" },
+              ],
+            },
+          ]}
+          filterValues={{
+            status: filters.status || "all",
+            role: filters.role || "all",
+            verified: filters.verified || "all",
+          }}
+          onFilterChange={handleFilterChange}
+          onClear={handleClear}
+        />
+      </div>
 
       <DataTable
         columns={columns}
