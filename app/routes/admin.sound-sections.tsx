@@ -6,6 +6,7 @@ import { soundSection, sound } from "~/db/schema";
 import { count, eq, sql } from "drizzle-orm";
 import { requireAuth } from "~/lib/auth.server";
 import { logAudit } from "~/lib/audit.server";
+import { createSoundSectionSchema, updateSoundSectionSchema } from "~/lib/validation";
 import { DataTable } from "~/components/data-table";
 import { ConfirmDialog } from "~/components/confirm-dialog";
 import { Button } from "~/components/ui/button";
@@ -13,7 +14,7 @@ import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "~/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "~/components/ui/dropdown-menu";
-import { MoreHorizontal, Trash2, Plus } from "lucide-react";
+import { MoreHorizontal, Trash2, Plus, Pencil } from "lucide-react";
 
 export async function loader({ request }: { request: Request }) {
   const session = await requireAuth(request);
@@ -41,15 +42,39 @@ export async function action({ request }: { request: Request }) {
     const name = String(formData.get("name") || "").trim();
     if (!name) return { errors: { name: ["Name is required"] } };
 
-    const result = await db.insert(soundSection).values({ name });
+    const result = createSoundSectionSchema.safeParse({ name });
+    if (!result.success) return { errors: result.error.flatten().fieldErrors };
+
+    await db.insert(soundSection).values({ name: result.data.name });
     await logAudit({
       adminId: session.adminId,
       action: "create_sound_section",
       entityType: "sound_section",
-      newValues: { name },
+      newValues: { name: result.data.name },
       request,
     });
     return { success: true, intent: "create" };
+  }
+
+  if (intent === "update") {
+    const sectionId = Number(formData.get("sectionId"));
+    const name = String(formData.get("name") || "").trim();
+
+    const result = updateSoundSectionSchema.safeParse({ sectionId, name });
+    if (!result.success) return { errors: result.error.flatten().fieldErrors };
+
+    const [oldSection] = await db.select({ name: soundSection.name }).from(soundSection).where(eq(soundSection.id, sectionId)).limit(1);
+    await db.update(soundSection).set({ name: result.data.name }).where(eq(soundSection.id, sectionId));
+    await logAudit({
+      adminId: session.adminId,
+      action: "update_sound_section",
+      entityType: "sound_section",
+      entityId: sectionId,
+      oldValues: { name: oldSection?.name },
+      newValues: { name: result.data.name },
+      request,
+    });
+    return { success: true, intent: "update" };
   }
 
   if (intent === "delete") {
@@ -86,20 +111,45 @@ export default function SoundSectionsPage() {
     sectionId: number;
   }>({ open: false, title: "", description: "", sectionId: 0 });
 
-  const [addOpen, setAddOpen] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogMode, setDialogMode] = useState<"create" | "edit">("create");
+  const [dialogSectionId, setDialogSectionId] = useState<number>(0);
   const [newName, setNewName] = useState("");
+
+  const openCreateDialog = () => {
+    setDialogMode("create");
+    setDialogSectionId(0);
+    setNewName("");
+    setDialogOpen(true);
+  };
+
+  const openEditDialog = (section: SectionRow) => {
+    setDialogMode("edit");
+    setDialogSectionId(section.id);
+    setNewName(section.name);
+    setDialogOpen(true);
+  };
+
+  const handleDialogSubmit = () => {
+    if (!newName.trim()) return;
+    if (dialogMode === "create") {
+      const fd = new FormData();
+      fd.set("intent", "create");
+      fd.set("name", newName.trim());
+      fetcher.submit(fd, { method: "post" });
+    } else {
+      const fd = new FormData();
+      fd.set("intent", "update");
+      fd.set("sectionId", String(dialogSectionId));
+      fd.set("name", newName.trim());
+      fetcher.submit(fd, { method: "post" });
+    }
+    setDialogOpen(false);
+  };
 
   const handleConfirmDelete = () => {
     fetcher.submit({ intent: "delete", sectionId: String(confirmDialog.sectionId) }, { method: "post" });
     setConfirmDialog((prev) => ({ ...prev, open: false }));
-  };
-
-  const handleCreate = () => {
-    if (newName.trim()) {
-      fetcher.submit({ intent: "create", name: newName.trim() }, { method: "post" });
-      setAddOpen(false);
-      setNewName("");
-    }
   };
 
   const columns: ColumnDef<SectionRow>[] = [
@@ -128,6 +178,9 @@ export default function SoundSectionsPage() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => openEditDialog(row.original)}>
+              <Pencil className="mr-2 h-4 w-4" /> Edit
+            </DropdownMenuItem>
             <DropdownMenuItem
               className="text-destructive focus:text-destructive"
               onClick={() => setConfirmDialog({
@@ -154,7 +207,7 @@ export default function SoundSectionsPage() {
             Manage sound sections. {sections.length.toLocaleString()} total sections.
           </p>
         </div>
-        <Button size="sm" onClick={() => setAddOpen(true)}>
+        <Button size="sm" onClick={openCreateDialog}>
           <Plus className="mr-1 h-4 w-4" /> Add Section
         </Button>
       </div>
@@ -178,13 +231,16 @@ export default function SoundSectionsPage() {
         variant="danger"
       />
 
-      {/* Add Section Dialog */}
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Sound Section</DialogTitle>
+            <DialogTitle>
+              {dialogMode === "create" ? "Add Sound Section" : "Edit Sound Section"}
+            </DialogTitle>
             <DialogDescription>
-              Create a new sound section to organize sounds on the platform.
+              {dialogMode === "create"
+                ? "Create a new sound section to organize sounds on the platform."
+                : "Update the sound section name."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -198,15 +254,20 @@ export default function SoundSectionsPage() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
-                    handleCreate();
+                    handleDialogSubmit();
                   }
                 }}
               />
+              {fetcher.data?.errors?.name && (
+                <p className="text-sm text-destructive">{fetcher.data.errors.name[0]}</p>
+              )}
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={!newName.trim()}>Create</Button>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleDialogSubmit} disabled={!newName.trim()}>
+              {dialogMode === "create" ? "Create" : "Save"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

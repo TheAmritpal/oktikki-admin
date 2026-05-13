@@ -113,7 +113,24 @@ export const rechargeWalletSchema = z.object({
 export const createSoundSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().optional(),
+  soundSectionId: z.coerce.number().int().positive("Section is required"),
   publish: z.coerce.number().min(0).max(1).default(1),
+});
+
+export const updateSoundSchema = z.object({
+  soundId: z.coerce.number().int().positive(),
+  name: z.string().min(1, "Name is required"),
+  description: z.string().optional(),
+  soundSectionId: z.coerce.number().int().positive("Section is required"),
+});
+
+export const createSoundSectionSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+});
+
+export const updateSoundSectionSchema = z.object({
+  sectionId: z.coerce.number().int().positive(),
+  name: z.string().min(1, "Name is required"),
 });
 
 export const createCategorySchema = z.object({
