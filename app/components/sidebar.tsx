@@ -35,6 +35,7 @@ import {
   LogOut,
   ChevronDown,
   X,
+  ArrowRightLeft,
 } from "lucide-react";
 import { cn } from "~/lib/utils";
 
@@ -68,6 +69,7 @@ const navGroups: NavGroup[] = [
     label: "Content",
     items: [
       { label: "Videos", href: "/admin/videos", icon: Video },
+      { label: "Video Reassignment", href: "/admin/video-reassignment", icon: ArrowRightLeft },
       { label: "Sounds", href: "/admin/sounds", icon: Music },
       { label: "Sound Sections", href: "/admin/sound-sections", icon: Layers },
       { label: "Stickers", href: "/admin/stickers", icon: Smile },

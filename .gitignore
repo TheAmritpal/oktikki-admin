@@ -1,5 +1,4 @@
 .DS_Store
-.env
 /node_modules/
 
 # React Router
@@ -13,3 +12,7 @@ graphify-out/cost.json
 .graphify_chunk_*.txt
 .graphify_python
 ,graphifyignore
+
+
+.env
+.env.*
