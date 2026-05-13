@@ -33,6 +33,8 @@ const routeLabels: Record<string, string> = {
   "/admin/banners": "Banners",
   "/admin/nudity-detection": "Nudity Detection",
   "/admin/audit-logs": "Audit Logs",
+  "/admin/live-streams": "Live Streams",
+  "/admin/rooms": "Voice Rooms",
   "/admin/roles": "Roles",
   "/admin/permissions": "Permissions",
 };
@@ -78,6 +80,7 @@ export function Header({ onMenuClick }: HeaderProps) {
         <button
           onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
           className="rounded-md p-2 hover:bg-accent"
+          suppressHydrationWarning
         >
           {theme === "dark" ? (
             <Sun className="h-5 w-5 text-muted-foreground" />

@@ -10,7 +10,6 @@ import {
   Smile,
   Hash,
   FolderTree,
-  MessageSquare,
   Image,
   Megaphone,
   Tags,
@@ -36,6 +35,8 @@ import {
   ChevronDown,
   X,
   ArrowRightLeft,
+  Radio,
+  MessageSquare,
 } from "lucide-react";
 import { cn } from "~/lib/utils";
 
@@ -99,6 +100,13 @@ const navGroups: NavGroup[] = [
       { label: "Business", href: "/admin/business-submissions", icon: Building2 },
       { label: "Documents", href: "/admin/documents", icon: FileBadge },
       { label: "Nudity Detection", href: "/admin/nudity-detection", icon: Eye },
+    ],
+  },
+  {
+    label: "Live Streaming",
+    items: [
+      { label: "Live Streams", href: "/admin/live-streams", icon: Radio },
+      { label: "Voice Rooms", href: "/admin/rooms", icon: MessageSquare },
     ],
   },
   {
