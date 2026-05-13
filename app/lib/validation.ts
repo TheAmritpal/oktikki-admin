@@ -245,3 +245,28 @@ export const paginationSchema = z.object({
   order: z.enum(["asc", "desc"]).default("desc"),
   search: z.string().optional(),
 });
+
+export const walletActionSchema = z.object({
+  userId: z.coerce.number().int().positive(),
+  amount: z.coerce.number().int(),
+  reason: z.string().min(1, "Reason is required"),
+  intent: z.enum(["add_balance", "remove_balance"]),
+});
+
+export const refundTransactionSchema = z.object({
+  transactionId: z.coerce.number().int().positive(),
+  reason: z.string().min(1, "Reason is required"),
+  intent: z.enum(["refund"]),
+});
+
+export const rollbackGiftSchema = z.object({
+  giftSendId: z.coerce.number().int().positive(),
+  reason: z.string().min(1, "Reason is required"),
+  intent: z.enum(["rollback"]),
+});
+
+export const fraudFilterSchema = z.object({
+  tab: z.string().default("fake_recharge"),
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
+});

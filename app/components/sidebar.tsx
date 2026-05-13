@@ -37,6 +37,11 @@ import {
   ArrowRightLeft,
   Radio,
   MessageSquare,
+  Wallet,
+  Flame,
+  Receipt,
+  RotateCcw,
+  ShieldAlert,
 } from "lucide-react";
 import { cn } from "~/lib/utils";
 
@@ -81,12 +86,22 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    label: "Wallet & Flames",
+    items: [
+      { label: "Wallets", href: "/admin/wallets", icon: Wallet },
+      { label: "Transactions", href: "/admin/transactions", icon: ScrollText },
+      { label: "Recharge History", href: "/admin/recharges", icon: Receipt },
+      { label: "Gift Transactions", href: "/admin/gift-transactions", icon: RotateCcw },
+      { label: "Withdrawals", href: "/admin/withdrawals", icon: Banknote },
+      { label: "Fraud Detection", href: "/admin/fraud-detection", icon: ShieldAlert },
+    ],
+  },
+  {
     label: "Monetization",
     items: [
       { label: "Promotions", href: "/admin/promotions", icon: Megaphone },
       { label: "Coupons", href: "/admin/coupons", icon: Tags },
       { label: "Gifts", href: "/admin/gifts", icon: Gift },
-      { label: "Withdrawals", href: "/admin/withdrawals", icon: Banknote },
       { label: "Orders", href: "/admin/orders", icon: Package },
     ],
   },
