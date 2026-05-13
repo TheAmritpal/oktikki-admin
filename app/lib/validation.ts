@@ -150,8 +150,17 @@ export const createCouponSchema = z.object({
 });
 
 export const createGiftSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  coinPrice: z.coerce.number().int().nonnegative("Coin price is required"),
+  title: z.string().min(1, "Title is required"),
+  coin: z.coerce.number().int().positive("Coin price must be positive"),
+  position: z.string().default(""),
+});
+
+export const updateGiftSchema = z.object({
+  giftId: z.coerce.number().int().positive(),
+  title: z.string().min(1, "Title is required"),
+  coin: z.coerce.number().int().positive("Coin price must be positive"),
+  position: z.string(),
+  time: z.string().optional(),
 });
 
 export const createRoleSchema = z.object({
