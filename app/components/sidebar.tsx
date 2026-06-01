@@ -3,7 +3,6 @@ import {
   LayoutDashboard,
   BarChart3,
   Users,
-  Shield,
   Video,
   Music,
   Layers,
@@ -68,7 +67,6 @@ const navGroups: NavGroup[] = [
     label: "People",
     items: [
       { label: "Users", href: "/admin/users", icon: Users },
-      { label: "Admins", href: "/admin/admins", icon: Shield },
     ],
   },
   {

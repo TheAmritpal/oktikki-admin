@@ -15,7 +15,7 @@ export async function action({ request }: { request: Request }) {
     });
   }
 
-  throw redirect("/login", {
+  return redirect("/login", {
     headers: { "Set-Cookie": destroySessionCookie() },
   });
 }
